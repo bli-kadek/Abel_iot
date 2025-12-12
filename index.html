@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>IOT_Abel | Dashboard</title>
+  <title>Monitor and Alarm API</title>
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -25,9 +25,9 @@
     .muted{color:#666;font-size:0.9rem}
     .chart-row{display:grid;grid-template-columns:1fr 2fr;gap:18px}
     .gauge-wrapper{position:relative;height:250px;display:flex;align-items:center;justify-content:center}
-    .gauge-label-center{position:absolute;top:58%;left:50%;transform:translate(-50%,-50%);text-align:center}
-    .gl-val{font-size:2rem;font-weight:700}
-    .gl-unit{font-size:0.9rem;color:#7f8c8d}
+    .gauge-label-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center}
+    .gl-val{font-size:2.4rem;font-weight:700}
+    .gl-unit{font-size:0.95rem;color:#7f8c8d}
     .status-badge{display:inline-block;padding:6px 12px;border-radius:20px;color:#fff;font-weight:700}
     .row{display:flex;gap:12px;align-items:center}
     .col{display:flex;flex-direction:column;gap:6px}
@@ -44,7 +44,7 @@
 <body>
 
   <aside class="sidebar">
-    <h2><i class="fas fa-wifi"></i> IOT_Abel Dashboard</h2>
+    <h2><i class="fas fa-bell"></i> Monitor and Alarm API</h2>
     <div class="muted" style="font-size:0.95rem">Status: <strong id="connBadge">Connecting...</strong></div>
     <div style="margin-top:auto" class="muted" id="timestamp">Waiting for data...</div>
     <div style="margin-top:12px;font-size:0.85rem;color:#ddd">ESP32 → Firebase RTDB</div>
@@ -53,8 +53,8 @@
   <main class="main">
     <div class="header">
       <div>
-        <h1 style="margin:0">IOT_Abel — Gas & Env Monitoring</h1>
-        <div class="muted">Realtime dashboard untuk MQ-2, DHT22, Ultrasonic</div>
+        <h1 style="margin:0">Monitor and Alarm API</h1>
+        <div class="muted">Realtime monitoring — MQ-2 (avg), DHT22 (suhu), Ultrasonic (level)</div>
       </div>
       <div class="row">
         <div class="col" style="align-items:flex-end">
@@ -111,39 +111,26 @@
     </div>
 
     <div class="chart-row">
-      <!-- GAUGE (Ultrasonic Level) -->
+      <!-- GAUGE (MQ-2 average) -->
       <div class="card">
-        <div class="card-header">Ultrasonic — Level</div>
+        <div class="card-header">MQ-2 — Rata-rata (Avg)</div>
         <div class="gauge-wrapper">
           <canvas id="gaugeChart"></canvas>
           <div class="gauge-label-center">
-            <span class="gl-val" id="gaugeVal">0</span>
-            <span class="gl-unit">cm</span>
+            <span class="gl-val" id="gaugeVal">--</span>
+            <div class="gl-unit">avg</div>
           </div>
         </div>
       </div>
 
-      <!-- TURBIDITY HISTORY GRAPH -->
+      <!-- TEMPERATURE HISTORY GRAPH -->
       <div class="card">
-        <div class="card-header">Riwayat Kekeruhan (Voltage)</div>
+        <div class="card-header">Riwayat Suhu (Realtime)</div>
         <div style="height:300px"><canvas id="historyChart"></canvas></div>
       </div>
     </div>
 
-    <div style="margin-top:18px;display:flex;gap:12px;flex-wrap:wrap">
-      <div class="card" style="flex:1;min-width:260px">
-        <div class="card-header">Raw Debug</div>
-        <pre id="rawJson" style="margin:0;white-space:pre-wrap;font-size:0.9rem;color:#333;background:#fafafa;padding:10px;border-radius:6px;height:100px;overflow:auto">—</pre>
-      </div>
-
-      <div class="card" style="width:220px">
-        <div class="card-header">Control</div>
-        <div class="muted">Actions via RTDB (requires write rules)</div>
-        <div style="margin-top:10px">
-          <button id="btnRefresh" class="ghost">Refresh Now</button>
-        </div>
-      </div>
-    </div>
+    <!-- (raw debug removed as requested) -->
 
   </main>
 
@@ -165,7 +152,7 @@
       measurementId: "G-MTXSK5984V"
     };
 
-    // init
+    // init firebase
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
     const auth = firebase.auth();
@@ -183,39 +170,49 @@
     const dhtHum = document.getElementById('dhtHum');
     const gaugeVal = document.getElementById('gaugeVal');
     const timestampEl = document.getElementById('timestamp');
-    const rawJsonEl = document.getElementById('rawJson');
     const resetAlarmBtn = document.getElementById('resetAlarmBtn');
-    const btnRefresh = document.getElementById('btnRefresh');
 
     // ---------- CHART SETUP ----------
-    const maxUltrasonic = 300;
+    // We'll use MQ avg gauge with max = 4095 (ADC 12-bit)
+    const maxMQ = 4095;
     const ctxG = document.getElementById('gaugeChart').getContext('2d');
     const gaugeChart = new Chart(ctxG, {
       type: 'doughnut',
-      data: {labels:['val','rest'], datasets:[{data:[0,maxUltrasonic],backgroundColor:['#2c3e50','#ecf0f1'],borderWidth:0,circumference:180,rotation:270,cutout:'75%'}]},
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false}}}
+      data: { labels:['val','rest'],
+              datasets:[{
+                data:[0, maxMQ],
+                backgroundColor:['#c0392b','#ecf0f1'],
+                borderWidth:0,
+                circumference: 180,
+                rotation: 270,
+                cutout: '75%'
+              }]
+      },
+      options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{enabled:false}}
+      }
     });
 
     const ctxH = document.getElementById('historyChart').getContext('2d');
     const gradient = ctxH.createLinearGradient(0,0,0,300);
-    gradient.addColorStop(0,'rgba(52,152,219,0.35)');
-    gradient.addColorStop(1,'rgba(52,152,219,0)');
+    gradient.addColorStop(0,'rgba(231,76,60,0.25)');
+    gradient.addColorStop(1,'rgba(231,76,60,0)');
     const historyChart = new Chart(ctxH,{
       type:'line',
-      data:{labels:[],datasets:[{label:'Turbidity (V)',data:[],borderColor:'#3498db',backgroundColor:gradient,fill:true,tension:0.35,pointRadius:0}]},
-      options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,max:3.5}},plugins:{legend:{display:false}}}
+      data:{labels:[],datasets:[{label:'Suhu (°C)',data:[],borderColor:'#e74c3c',backgroundColor:gradient,fill:true,tension:0.35,pointRadius:0}]},
+      options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        scales:{
+          y:{beginAtZero:false, suggestedMin:15, suggestedMax:45}
+        },
+        plugins:{legend:{display:false}}
+      }
     });
 
-    function setStatusColor(voltage){
-      let c = '#27ae60', txt='Unknown';
-      if (voltage <= 0.5){ c='#27ae60'; txt='Air Jernih'; }
-      else if (voltage <= 2.5){ c='#f39c12'; txt='Air Keruh'; }
-      else { c='#c0392b'; txt='Air Sangat Keruh'; }
-      document.getElementById('statusCard').style.borderLeftColor = c;
-      return { color: c, text: txt };
-    }
-
-    function pushHistory(label, value){
+    function pushTempHistory(label, value){
       historyChart.data.labels.push(label);
       historyChart.data.datasets[0].data.push(value);
       if (historyChart.data.labels.length > 60){
@@ -230,89 +227,78 @@
       .then(()=>{ connBadge.innerText='Online'; })
       .catch(err=>{ connBadge.innerText='Auth Error'; console.error(err); });
 
-    // ---------- LISTENER: prefer /sensors/mq2 but also listen /sensors ----------
+    // ---------- LISTENER ----------
     function handleSensorsSnapshot(data){
       if (!data) return;
-      // try mq2 node first
-      const mq2 = data.mq2 || data.turbidity || data.turbidity; // compatibility
-      const turb = (data.turbidity && data.turbidity.voltage!==undefined) ? data.turbidity : null;
-      const ultr = data.ultrasonic || data.ultrasonic;
-      const flow = data.flow || data.flow;
 
-      // Raw JSON debug
-      rawJsonEl.innerText = JSON.stringify(data, null, 2);
-
-      // MQ2 block
-      if (data.mq2){
+      // MQ2 data (prefer /sensors/mq2)
+      if (data.mq2) {
         const m = data.mq2;
         mqRawEl.innerText = (m.raw !== undefined) ? m.raw : '--';
         mqAvgEl.innerText = (m.avg !== undefined) ? m.avg : '--';
         mqBaselineEl.innerText = (m.baseline !== undefined) ? m.baseline : '--';
         mqThresEl.innerText = ( (m.baseline!==undefined) ? (parseInt(m.baseline) + 250) : '--' );
+
+        // update gauge (use avg if available, fallback to raw)
+        let gVal = (m.avg !== undefined) ? parseFloat(m.avg) : ((m.raw!==undefined)?parseFloat(m.raw):0);
+        if (isNaN(gVal)) gVal = 0;
+        gVal = Math.max(0, Math.min(maxMQ, gVal));
+        gaugeVal.innerText = Math.round(gVal);
+        gaugeChart.data.datasets[0].data = [gVal, Math.max(maxMQ - gVal, 0)];
+        gaugeChart.update();
+
         // alarm
         const alarm = !!m.alarm;
         alarmBadge.innerText = alarm ? 'ALARM' : 'OK';
         alarmBadge.style.backgroundColor = alarm ? 'var(--danger)' : 'var(--safe)';
       } else {
+        // no mq2 node — clear values
         mqRawEl.innerText = '--';
         mqAvgEl.innerText = '--';
         mqBaselineEl.innerText = '--';
         mqThresEl.innerText = '--';
+        gaugeVal.innerText = '--';
+        gaugeChart.data.datasets[0].data = [0, maxMQ];
+        gaugeChart.update();
         alarmBadge.innerText = '—';
         alarmBadge.style.backgroundColor = '#999';
       }
 
-      // DHT block (if present under mq2.dht or top-level)
+      // DHT: prefer mqtt node dht or top-level dht
       let t = null, h = null;
       if (data.mq2 && data.mq2.dht){
         t = data.mq2.dht.temperature;
         h = data.mq2.dht.humidity;
       } else if (data.dht){
         t = data.dht.temperature; h = data.dht.humidity;
-      } else if (data.mq2 && data.mq2.temp) { // fallback names
+      } else if (data.mq2 && data.mq2.temp !== undefined){
         t = data.mq2.temp; h = data.mq2.hum;
       }
+
       if (t !== undefined && t !== null && !isNaN(t)){
         dhtTemp.innerText = parseFloat(t).toFixed(2) + ' °C';
-      } else dhtTemp.innerText = '-- °C';
+        pushTempHistory(new Date().toLocaleTimeString(), parseFloat(t));
+      } else {
+        dhtTemp.innerText = '-- °C';
+      }
+
       if (h !== undefined && h !== null && !isNaN(h)){
         dhtHum.innerText = parseFloat(h).toFixed(2) + ' %';
-      } else dhtHum.innerText = '-- %';
+      } else {
+        dhtHum.innerText = '-- %';
+      }
 
-      // Turbidity (legacy node structure)
+      // Ultrasonic (optional) - if top-level ultrasonic exists, we don't display separately now
+      // Status text / turbidity if present (kept for compatibility)
       if (data.turbidity && data.turbidity.voltage !== undefined){
         const v = parseFloat(data.turbidity.voltage) || 0;
-        const st = setStatusColor(v);
-        txtStatus.innerText = data.turbidity.level || st.text;
-        txtDesc.innerText = data.turbidity.description || '-';
-        pushHistory(new Date().toLocaleTimeString(), v);
-      } else if (data.mq2 && data.mq2.turbidity_voltage !== undefined){
-        // fallback
-        const v = parseFloat(data.mq2.turbidity_voltage) || 0;
-        const st = setStatusColor(v);
-        txtStatus.innerText = st.text;
-        txtDesc.innerText = '-';
-        pushHistory(new Date().toLocaleTimeString(), v);
+        if (!isNaN(v)){
+          const st = (v <= 0.5) ? 'Air Jernih' : (v <= 2.5 ? 'Air Keruh' : 'Air Sangat Keruh');
+          txtStatus.innerText = data.turbidity.level || st;
+          txtDesc.innerText = data.turbidity.description || '-';
+        }
       }
 
-      // Ultrasonic gauge
-      if (data.ultrasonic && data.ultrasonic.cm !== undefined){
-        let cm = parseFloat(data.ultrasonic.cm);
-        if (isNaN(cm) || cm < 0) cm = 0;
-        cm = Math.min(cm, maxUltrasonic);
-        gaugeVal.innerText = Math.round(cm);
-        gaugeChart.data.datasets[0].data = [cm, Math.max(maxUltrasonic-cm,0)];
-        gaugeChart.update();
-      } else if (data.mq2 && data.mq2.ultrasonic_cm !== undefined){
-        let cm = parseFloat(data.mq2.ultrasonic_cm);
-        if (isNaN(cm) || cm < 0) cm = 0;
-        cm = Math.min(cm, maxUltrasonic);
-        gaugeVal.innerText = Math.round(cm);
-        gaugeChart.data.datasets[0].data = [cm, Math.max(maxUltrasonic-cm,0)];
-        gaugeChart.update();
-      }
-
-      // timestamp
       timestampEl.innerText = "Last Update: " + new Date().toLocaleString();
     }
 
@@ -322,36 +308,25 @@
       if (v) handleSensorsSnapshot(v);
     });
 
-    // also listen to /sensors/mq2 for direct node updates (if your sketch writes there)
+    // also listen to /sensors/mq2 for direct node updates
     db.ref('/sensors/mq2').on('value', snap => {
       const v = snap.val();
       if (v) {
-        // merge into object shaped like /sensors
-        const obj = Object.assign({}, v);
-        // prefer handler using full /sensors shape — build minimal wrapper
-        const wrapper = { mq2: obj, turbidity: (obj.turbidity?obj.turbidity:null), ultrasonic: (obj.ultrasonic?obj.ultrasonic:null) };
+        const wrapper = { mq2: v, turbidity: (v.turbidity?v.turbidity:null) };
         handleSensorsSnapshot(wrapper);
       }
     });
 
     // ---------- Controls ----------
     resetAlarmBtn.addEventListener('click', ()=> {
-      // write false to /sensors/mq2/alarm
       db.ref('/sensors/mq2/alarm').set(false)
         .then(()=>{ console.log('Alarm reset request sent'); })
         .catch(err=>{ console.error('Reset failed', err); alert('Reset failed: ' + err.message); });
     });
 
-    btnRefresh.addEventListener('click', ()=> {
-      // quick read once
-      db.ref('/sensors').get()
-        .then(snap=>{ if (snap.exists()) handleSensorsSnapshot(snap.val()); })
-        .catch(err=>{ console.error(err); });
-    });
-
-    // Small safety: if auth fails, still try to read public DB (if rules permit)
+    // in case auth fails: show message in console
     auth.onAuthStateChanged(u => {
-      if (!u) connBadge.innerText = 'Auth required';
+      if (!u) console.warn('Auth state: no user (DB rules might still allow public read).');
     });
 
   </script>
